@@ -1,0 +1,4 @@
+﻿  Assembling Source.asm...
+Source.asm(454): warning A6004: procedure argument or local not referenced : block
+Source.asm(454): warning A6004: procedure argument or local not referenced : address
+  hashy.vcxproj -> C:\Users\Ronni\source\repos\hashy\Debug\hashy.exe
