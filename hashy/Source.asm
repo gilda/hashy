@@ -1,7 +1,7 @@
 include \masm32\include\masm32rt.inc
 
 .data
-gilda db "abcd",0
+message db 256 dup (0),0
 buff_512 db 64 dup (?), 0
 initial_a DWORD 06a09e667h
 initial_b DWORD 0bb67ae85h
@@ -11,7 +11,6 @@ initial_e DWORD 0510e527fh
 initial_f DWORD 09b05688ch
 initial_g DWORD 01f83d9abh
 initial_h DWORD 05be0cd19h
-interhash DWORD 8 dup (?)
 K0_31 DWORD 0428a2f98h, 071374491h, 0b5c0fbcfh, 0e9b5dba5h, 03956c25bh, 059f111f1h, 0923f82a4h, 0ab1c5ed5h, 0d807aa98h, 012835b01h, 0243185beh, 0550c7dc3h, 072be5d74h, 080deb1feh, 09bdc06a7h, 0c19bf174h, 0e49b69c1h, 0efbe4786h, 00fc19dc6h, 0240ca1cch, 02de92c6fh, 04a7484aah, 05cb0a9dch, 076f988dah, 0983e5152h, 0a831c66dh, 0b00327c8h, 0bf597fc7h, 0c6e00bf3h, 0d5a79147h, 006ca6351h, 014292967h
 K31_63 DWORD 027b70a85h, 02e1b2138h, 04d2c6dfch, 053380d13h, 0650a7354h, 0766a0abbh, 081c2c92eh, 092722c85h, 0a2bfe8a1h, 0a81a664bh, 0c24b8b70h, 0c76c51a3h, 0d192e819h, 0d6990624h, 0f40e3585h, 0106aa070h, 019a4c116h, 01e376c08h, 02748774ch, 034b0bcb5h, 0391c0cb3h, 04ed8aa4ah, 05b9cca4fh, 0682e6ff3h, 0748f82eeh, 078a5636fh, 084c87814h, 08cc70208h, 090befffah, 0a4506cebh, 0bef9a3f7h, 0c67178f2h
 nBlock DWORD ?
@@ -24,7 +23,20 @@ tePrev DWORD 0510e527fh
 tfPrev DWORD 09b05688ch
 tgPrev DWORD 01f83d9abh
 thPrev DWORD 05be0cd19h
+pBuff db 64 dup(0), 0
+tBuff db 16 dup(0), 0
+crlf db 13, 10, 0
+timeMessage db "elapsed time: ", 0
+miliMessage db " miliseconds", 0
+tStart DWORD ?
+tEnd DWORD ?
+tElapsed DWORD ?
 .code
+
+getMessage proc
+	invoke StdIn, addr message, 256
+	ret
+getMessage endp
 
 strLenByTerminator proc address:DWORD
 	mov ebx, address
@@ -549,15 +561,78 @@ hashMess proc address:DWORD
 	ret
 hashMess endp
 
-main proc
-	invoke hashMess, addr gilda
+printHash proc 
+	mov eax, taPrev
+	bswap eax
+	mov taPrev, eax
+	mov eax, tbPrev
+	bswap eax
+	mov tbPrev, eax
+	mov eax, tcPrev
+	bswap eax
+	mov tcPrev, eax
+	mov eax, tdPrev
+	bswap eax
+	mov tdPrev, eax
+	mov eax, tePrev
+	bswap eax
+	mov tePrev, eax
+	mov eax, tfPrev
+	bswap eax
+	mov tfPrev, eax
+	mov eax, tgPrev
+	bswap eax
+	mov tgPrev, eax
+	mov eax, thPrev
+	bswap eax
+	mov thPrev, eax
 
+	lea edx, pBuff
+	invoke dw2hex, taPrev, edx
+	add edx, 8
+	invoke dw2hex, tbPrev, edx
+	add edx, 8
+	invoke dw2hex, tcPrev, edx
+	add edx, 8
+	invoke dw2hex, tdPrev, edx
+	add edx, 8
+	invoke dw2hex, tePrev, edx
+	add edx, 8
+	invoke dw2hex, tfPrev, edx
+	add edx, 8
+	invoke dw2hex, tgPrev, edx
+	add edx, 8
+	invoke dw2hex, thPrev, edx
+
+	invoke StdOut, addr pBuff
+	invoke StdOut, addr crlf
+
+	ret
+printHash endp
+
+getTime proc
+	
+	ret
+getTime endp
+
+main proc
+	xor ecx, ecx
+	.while ecx < 2
+		invoke getMessage
+		invoke hashMess, addr message
+		invoke printHash
+		invoke StdOut, addr timeMessage
+		invoke dwtoa, tElapsed, addr tBuff
+		lea ebx, tBuff
+		invoke StdOut, addr tBuff
+		invoke StdOut, addr miliMessage
+		invoke StdOut, addr crlf
+		xor ecx, ecx
+	.endw
 	inkey "press any button to continue"
 	invoke ExitProcess, 0
 main endp
 
 end main
-; 16/2/18 HASH IS DONE!
-; TODO get input and output hash
-; possibly try and find time it took to calculate
-;
+; TODO find precise time with filetime
+; https://stackoverflow.com/questions/3729169/how-can-i-get-the-windows-system-time-with-millisecond-resolution
