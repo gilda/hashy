@@ -1,7 +1,7 @@
 include \masm32\include\masm32rt.inc
 
 .data
-gilda db "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq",0;q", 0
+gilda db "abcd",0
 buff_512 db 64 dup (?), 0
 initial_a DWORD 06a09e667h
 initial_b DWORD 0bb67ae85h
@@ -36,93 +36,71 @@ strLenByTerminator proc address:DWORD
 	ret
 strLenByTerminator endp
 
-pad512 proc address:DWORD
-	LOCAL lenBytes:DWORD, numBlock:DWORD
-	invoke strLenByTerminator, address
-	mov lenBytes, eax
-	mov ebx, 64
-	xor edx, edx
-	div ebx
-	inc eax
-	mov numBlock, eax
-	.if edx >= 56
-		inc eax
-	.endif
-	mul ebx
-	invoke GlobalAlloc, GPTR, eax
-	mov pMem, eax
-	mov edx, address
-	.if lenBytes < 56
-		xor ecx, ecx
-		.while ecx < lenBytes
-			mov bl, BYTE PTR [edx+ecx]
-			mov BYTE PTR [eax+ecx], bl
-			inc ecx
-		.endw
-		mov BYTE PTR [eax+ecx], 080h
-		inc ecx
-		add ecx, 4
-		mov eax, lenBytes
-		mov ebx, 64
-		mul ebx
-		mov ebx, pMem
-		.if eax > 65535
-			bswap eax
-			mov DWORD PTR [ebx+ecx], eax
-		.else
-			add ecx, 2
-			xchg al, ah
-			mov WORD PTR [ebx+ecx], ax
-		.endif
-	.else
-		xor ecx, ecx
-		.while ecx < lenBytes
-			mov bl, BYTE PTR [edx+ecx]
-			mov BYTE PTR [eax+ecx], bl
-			inc ecx
-		.endw
-		mov BYTE PTR [eax+ecx], 080h
-		mov ebx, 64
-		mov eax, numBlock
-		mul ebx
-		add ecx, eax
-		add ecx, 4
-		invoke strLenByTerminator, address
-		mov ebx, 8
-		mul ebx
-		mov ebx, pMem
-		.if eax > 65535
-			bswap eax
-			mov DWORD PTR [ebx+ecx], eax
-		.else
-			add ecx, 2
-			xchg al, ah
-			mov WORD PTR [ebx+ecx], ax
-		.endif
-	.endif
-	
-	ret
-pad512 endp
-
 getNumBlock proc address:DWORD
 	invoke strLenByTerminator, address
-	.if eax >= 64
-		xor edx, edx
-		mov ebx, 64
-		div ebx
-		ret
+	xor edx, edx
+	mov ebx, 64
+	div ebx
+	.if edx < 56
+		inc eax
 	.else
-		.if eax >= 56
-			mov eax, 1
-			ret
-		.else
-			xor eax, eax
-			ret
-		.endif
+		add eax, 2
 	.endif
 
 	ret
 getNumBlock endp
+
+pad512 proc address:DWORD
+	LOCAL lenBytes:DWORD, numBlock:DWORD, numZero:DWORD
+	invoke strLenByTerminator, address
+	mov lenBytes, eax
+	invoke getNumBlock, address
+	mov numBlock, eax
+	mov ebx, 64
+	mul ebx
+	invoke GlobalAlloc, GPTR, eax
+	mov pMem, eax
+	xor ecx, ecx
+	mov ebx, address
+	.while ecx < lenBytes
+		mov dl, BYTE PTR [ebx + ecx]
+		mov BYTE PTR [eax + ecx], dl
+		inc ecx
+	.endw
+	mov BYTE PTR [eax + ecx], 80h
+	inc ecx
+	invoke getNumBlock, address
+	mov ebx, 64
+	mul ebx
+	sub eax, lenBytes
+	sub eax, 4
+	mov numZero, eax
+
+	mov ecx, lenBytes
+	inc ecx
+	mov eax, pMem
+	.while ecx < numZero
+		mov BYTE PTR [eax+ecx], 0h
+		inc ecx
+	.endw
+	mov ecx, lenBytes
+	inc ecx
+	add ecx, numZero
+	mov eax, lenBytes
+	mov ebx, 8
+	mul ebx
+	mov ebx, pMem
+	.if eax < 65536
+		xchg al, ah
+		inc ecx
+		mov WORD PTR [ebx + ecx], ax
+	.else
+		bswap eax
+		mov DWORD PTR [ebx + ecx], eax
+	.endif
+
+	ret
+pad512 endp
 
 chxyz proc x:DWORD, y:DWORD, z:DWORD ; (X AND Y) XOR (NOT X AND Z)
 	mov eax, x
@@ -270,46 +248,8 @@ wj proc n:DWORD, block:DWORD
 	ret
 wj endp
 
-addInterHash proc 
-	lea eax, interhash
-	mov ebx, DWORD PTR [eax+0*4]
-	add ebx, initial_a
-	bswap ebx
-	mov DWORD PTR [eax+0*4], ebx
-	mov ebx, DWORD PTR [eax+1*4]
-	add ebx, initial_b
-	bswap ebx
-	mov DWORD PTR [eax+1*4], ebx
-	mov ebx, DWORD PTR [eax+2*4]
-	add ebx, initial_c
-	bswap ebx
-	mov DWORD PTR [eax+2*4], ebx
-	mov ebx, DWORD PTR [eax+3*4]
-	add ebx, initial_d
-	bswap ebx
-	mov DWORD PTR [eax+3*4], ebx
-	mov ebx, DWORD PTR [eax+4*4]
-	add ebx, initial_e
-	bswap ebx
-	mov DWORD PTR [eax+4*4], ebx
-	mov ebx, DWORD PTR [eax+5*4]
-	add ebx, initial_f
-	bswap ebx
-	mov DWORD PTR [eax+5*4], ebx
-	mov ebx, DWORD PTR [eax+6*4]
-	add ebx, initial_g
-	bswap ebx
-	mov DWORD PTR [eax+6*4], ebx
-	mov ebx, DWORD PTR [eax+7*4]
-	add ebx, initial_h
-	bswap ebx
-	mov DWORD PTR [eax+7*4], ebx
-
-	ret
-addInterHash endp
-
 hashBlock proc block:DWORD, n:DWORD
-	LOCAL t1:DWORD, t2:DWORD, ta:DWORD, tb:DWORD, tc:DWORD, td:DWORD, te:DWORD, tf:DWORD, tg:DWORD, th:DWORD, address:DWORD
+	LOCAL t1:DWORD, t2:DWORD, ta:DWORD, tb:DWORD, tc:DWORD, td:DWORD, te:DWORD, tf:DWORD, tg:DWORD, th:DWORD
 	.if n==0
 		mov eax, initial_a
 		mov ta, eax
@@ -435,7 +375,155 @@ hashBlock proc block:DWORD, n:DWORD
 		mov thPrev, eax
 		lea edx, taPrev
 	.else
-		ret
+		mov eax, n
+		dec eax
+		invoke hashBlock, block, eax
+		
+		mov eax, taPrev
+		bswap eax
+		mov ta, eax
+		mov eax, tbPrev
+		bswap eax
+		mov tb, eax
+		mov eax, tcPrev
+		bswap eax
+		mov tc, eax
+		mov eax, tdPrev
+		bswap eax
+		mov td, eax
+		mov eax, tePrev
+		bswap eax
+		mov te, eax
+		mov eax, tfPrev
+		bswap eax
+		mov tf, eax
+		mov eax, tgPrev
+		bswap eax
+		mov tg, eax
+		mov eax, thPrev
+		bswap eax
+		mov th, eax
+		
+		xor ecx, ecx
+		.while ecx < 64
+			mov ebx, th
+			push ebx
+			push ecx
+			invoke sum1, te
+			pop ecx
+			pop ebx
+			add ebx, eax
+			push ebx
+			push ecx
+			invoke chxyz, te, tf, tg
+			pop ecx
+			pop ebx
+			add ebx, eax
+			.if ecx < 32
+				lea edx, K0_31
+				mov eax, DWORD PTR [edx + ecx*4]
+			.else
+				lea edx, K31_63
+				mov eax, ecx
+				sub eax, 32
+				mov eax, DWORD PTR [edx + eax*4]
+			.endif
+			add ebx, eax
+			push ebx
+			push ecx
+			mov ebx, 64
+			mov eax, n
+			mul ebx
+			add eax, block
+			invoke wj, ecx, eax
+			pop ecx
+			pop ebx
+			add ebx, eax
+			mov t1, ebx
+
+			push ecx
+			invoke sum0, ta
+			pop ecx
+			mov ebx, eax
+			push ebx
+			push ecx
+			invoke majxyz, ta, tb, tc
+			pop ecx
+			pop ebx
+			add ebx, eax
+			mov t2, ebx
+
+			mov eax, tg
+			mov th, eax
+
+			mov eax, tf
+			mov tg, eax
+
+			mov eax, te
+			mov tf, eax
+
+			mov eax, td
+			add eax, t1
+			mov te, eax
+
+			mov eax, tc
+			mov td, eax
+
+			mov eax, tb
+			mov tc, eax
+
+			mov eax, ta
+			mov tb, eax
+
+			mov eax, t1
+			add eax, t2
+			mov ta, eax
+
+			inc ecx
+		.endw
+
+		mov eax, taPrev
+		bswap eax
+		add eax, ta
+		bswap eax
+		mov taPrev, eax
+		mov eax, tbPrev
+		bswap eax
+		add eax, tb
+		bswap eax
+		mov tbPrev, eax
+		mov eax, tcPrev
+		bswap eax
+		add eax, tc
+		bswap eax
+		mov tcPrev, eax
+		mov eax, tdPrev
+		bswap eax
+		add eax, td
+		bswap eax
+		mov tdPrev, eax
+		mov eax, tePrev
+		bswap eax
+		add eax, te
+		bswap eax
+		mov tePrev, eax
+		mov eax, tfPrev
+		bswap eax
+		add eax, tf
+		bswap eax
+		mov tfPrev, eax
+		mov eax, tgPrev
+		bswap eax
+		add eax, tg
+		bswap eax
+		mov tgPrev, eax
+		mov eax, thPrev
+		bswap eax
+		add eax, th
+		bswap eax
+		mov thPrev, eax
+		lea edx, taPrev
+
 	.endif
 	;loop 64 times:
 	;	T1 <= Hi-1 + sum1(Ej-1) + chxyz(Ej-1, Fj-1, Gj-1) + Kj + Wj
@@ -456,8 +544,8 @@ hashBlock endp
 hashMess proc address:DWORD
 	invoke pad512, address
 	invoke getNumBlock, address
-	invoke hashBlock, address, 0
-	lea ebx, interhash
+	dec eax
+	invoke hashBlock, pMem, eax
 	ret
 hashMess endp
 
@@ -469,12 +557,7 @@ main proc
 main endp
 
 end main
-
-;TODO
-; figure out what to do when l=64 or 60<l<64
-; understand multiblock memory and block notation
-; make hashBlock recursive to n-1 so that it will calculate
-;	j=j-1 until j=0 then return constants
-; figure out how to print hex values as ascii dwtoa
-; test
-; start MD5
+; 16/2/18 HASH IS DONE!
+; TODO get input and output hash
+; possibly try and find time it took to calculate
+;
