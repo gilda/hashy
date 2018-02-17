@@ -28,9 +28,12 @@ tBuff db 16 dup(0), 0
 crlf db 13, 10, 0
 timeMessage db "elapsed time: ", 0
 miliMessage db " miliseconds", 0
-tStart DWORD ?
-tEnd DWORD ?
-tElapsed DWORD ?
+tFrequency LARGE_INTEGER <>
+tStart LARGE_INTEGER <>
+tStartSec DWORD ?
+tEnd LARGE_INTEGER <>
+tEndSec DWORD ?
+tElapsedSec DWORD ?
 .code
 
 getMessage proc
@@ -603,17 +606,22 @@ printHash proc
 	invoke dw2hex, tgPrev, edx
 	add edx, 8
 	invoke dw2hex, thPrev, edx
+	xor ecx, ecx
+	.while ecx < 64
+		lea ebx, pBuff
+		.if BYTE PTR [ebx+ecx] > 60
+			mov al, BYTE PTR [ebx+ecx]
+			add al, 32
+			mov BYTE PTR [ebx+ecx], al
+		.endif
+		inc ecx
+	.endw
 
 	invoke StdOut, addr pBuff
 	invoke StdOut, addr crlf
 
 	ret
 printHash endp
-
-getTime proc
-	
-	ret
-getTime endp
 
 main proc
 	xor ecx, ecx
@@ -622,8 +630,6 @@ main proc
 		invoke hashMess, addr message
 		invoke printHash
 		invoke StdOut, addr timeMessage
-		invoke dwtoa, tElapsed, addr tBuff
-		lea ebx, tBuff
 		invoke StdOut, addr tBuff
 		invoke StdOut, addr miliMessage
 		invoke StdOut, addr crlf
@@ -632,6 +638,7 @@ main proc
 	inkey "press any button to continue"
 	invoke ExitProcess, 0
 main endp
+
 
 end main
 ; TODO find precise time with filetime
