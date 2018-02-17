@@ -27,13 +27,11 @@ pBuff db 64 dup(0), 0
 tBuff db 16 dup(0), 0
 crlf db 13, 10, 0
 timeMessage db "elapsed time: ", 0
-miliMessage db " miliseconds", 0
+miliMessage db " micro seconds", 0
 tFrequency LARGE_INTEGER <>
 tStart LARGE_INTEGER <>
-tStartSec DWORD ?
 tEnd LARGE_INTEGER <>
-tEndSec DWORD ?
-tElapsedSec DWORD ?
+tElapsed db 8 dup (0),0
 .code
 
 getMessage proc
@@ -623,11 +621,36 @@ printHash proc
 	ret
 printHash endp
 
+carrySub proc
+	lea ebx, tEnd
+	mov eax, DWORD PTR [ebx]
+	lea ebx, tStart
+	sub eax, DWORD PTR [ebx]
+	lea ebx, tEnd
+	mov ebx, DWORD PTR [ebx+4]
+	lea ecx, tStart
+	sbb ebx, DWORD PTR [ecx+4]
+	mov ebx, 0000f4240h
+	mul ebx
+	lea ebx, tElapsed
+	mov DWORD PTR [ebx], edx
+	mov DWORD PTR [ebx+4], eax
+	lea ebx, tFrequency
+	mov ebx, tFrequency.LowPart
+	div ebx
+	invoke dwtoa, eax, addr tBuff
+	ret
+carrySub endp
+
 main proc
 	xor ecx, ecx
-	.while ecx < 2
+	.while ecx==0
 		invoke getMessage
+		invoke QueryPerformanceFrequency, addr tFrequency
+		invoke QueryPerformanceCounter, addr tStart
 		invoke hashMess, addr message
+		invoke QueryPerformanceCounter, addr tEnd
+		invoke carrySub
 		invoke printHash
 		invoke StdOut, addr timeMessage
 		invoke StdOut, addr tBuff
@@ -641,5 +664,3 @@ main endp
 
 
 end main
-; TODO find precise time with filetime
-; https://stackoverflow.com/questions/3729169/how-can-i-get-the-windows-system-time-with-millisecond-resolution
