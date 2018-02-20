@@ -28,6 +28,7 @@ tBuff db 16 dup(0), 0
 crlf db 13, 10, 0
 timeMessage db "elapsed time: ", 0
 miliMessage db " micro seconds", 0
+insertMessage db "insert message to hash using SHA256: ", 0
 tFrequency LARGE_INTEGER <>
 tStart LARGE_INTEGER <>
 tEnd LARGE_INTEGER <>
@@ -645,6 +646,8 @@ carrySub endp
 main proc
 	xor ecx, ecx
 	.while ecx==0
+		invoke StdOut, addr insertMessage
+		invoke StdOut, addr crlf
 		invoke getMessage
 		invoke QueryPerformanceFrequency, addr tFrequency
 		invoke QueryPerformanceCounter, addr tStart
@@ -655,6 +658,7 @@ main proc
 		invoke StdOut, addr timeMessage
 		invoke StdOut, addr tBuff
 		invoke StdOut, addr miliMessage
+		invoke StdOut, addr crlf
 		invoke StdOut, addr crlf
 		xor ecx, ecx
 	.endw
