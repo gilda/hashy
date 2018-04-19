@@ -1,7 +1,12 @@
 include \masm32\include\masm32rt.inc
 
 .data
-message db 512 dup (0), 0 ;input buffer
+hwnd HWND ? ; handle to the console window
+inpNumRead DWORD ? ; the number of events read from console input
+inp INPUT_RECORD 128 dup(<>) ; events read from console input
+
+
+message db 1028 dup (0), 0 ;input buffer
 
 initial_a DWORD 06a09e667h ; initial constants
 initial_b DWORD 0bb67ae85h
@@ -31,55 +36,56 @@ thPrev DWORD ?
 pBuff db 64 dup(0), 0 ; hash string buffer
 tBuff db 16 dup(0), 0 ; timer buffer
 
-crlf db 13, 10, 0 ;next line string
-timeMessage db "elapsed time: ", 0 ;strings to print V
-miliMessage db " micro seconds", 0 ;
-insertMessage db "insert message to hash using SHA256: ", 0 ;prompt
+crlf db 13, 10, 0 ; next line string
+timeMessage db "elapsed time: ", 0 ; strings to print V
+microMessage db " micro seconds", 0 ; microseconds
+insertMessage db "insert message to hash using SHA256: ", 0 ; prompt
 
-tFrequency LARGE_INTEGER <> ;find cpu frequency to calculate time
-tStart LARGE_INTEGER <> ;start of hashy time
-tEnd LARGE_INTEGER <> ;end of hash time
-tElapsed db 8 dup (0),0 ;elapsed time of hash
+tFrequency LARGE_INTEGER <> ; find cpu frequency to calculate time
+tStart LARGE_INTEGER <> ; start of hashy time
+tEnd LARGE_INTEGER <> ; end of hash time
+tElapsed db 8 dup (0),0 ; elapsed time of hash
 
 .const
-SUM0ROT1=2 ;rotating constants
-SUM0ROT2=13;
-SUM0ROT3=22;
+SUM0ROT1=2 ; rotating constants
+SUM0ROT2=13 ;
+SUM0ROT3=22 ;
 
-SUM1ROT1=6 ;rotating constants
-SUM1ROT2=11;
-SUM1ROT3=25;
+SUM1ROT1=6 ; rotating constants
+SUM1ROT2=11 ;
+SUM1ROT3=25 ;
 
-SIGMA0ROT1=7 ;rotating constants
-SIGMA0ROT2=18;
-SIGMA0SHIFT1=3;
+SIGMA0ROT1=7 ; rotating constants
+SIGMA0ROT2=18 ;
+SIGMA0SHIFT1=3 ;
 
 SIGMA1ROT1=17 ;rotating constants
 SIGMA1ROT2=19 ;
-SIGMA1SHIFT1=10;
+SIGMA1SHIFT1=10 ;
+
+charoffset = SIZEOF DWORD + SIZEOF BOOL + SIZEOF WORD * 3 ; constant for the offset of char inside KEY_EVENT struct
 
 .code
-
-getMessage proc ;gets input from user and puts it into buffer "message"
-	invoke StdIn, addr message, 256
-	ret
-getMessage endp
 
 strLenByTerminator proc address:DWORD ;gets the length of string by the terminator 0
 	mov ebx, address ;the address of the string
 	xor eax, eax
+
 	.while BYTE PTR [ebx]!=0 ;loops until it finds the next byte 00
 		inc ebx ;inc pointer
 		inc eax ;inc return value
 	.endw
+	
 	ret
 strLenByTerminator endp
 
 getNumBlock proc address:DWORD ;gets the correct number of blocks to hash by the address of the string to hash
 	invoke strLenByTerminator, address ; get string length
+	; calculates the correct amount of 512 bit blocks of data for the hash
 	xor edx, edx
 	mov ebx, 64
 	div ebx
+	
 	.if edx < 56
 		inc eax
 	.else
@@ -91,14 +97,16 @@ getNumBlock endp
 
 pad512 proc address:DWORD ; pads the message into the pMem using GlobalAlloc
 	LOCAL lenBytes:DWORD, numBlock:DWORD, numZero:DWORD
-	invoke strLenByTerminator, address
+	
+	invoke strLenByTerminator, address ; find length of message to hash
 	mov lenBytes, eax
 	invoke getNumBlock, address
 	mov numBlock, eax
 	mov ebx, 64
 	mul ebx
-	invoke GlobalAlloc, GPTR, eax
+	invoke GlobalAlloc, GPTR, eax ; allocate enough memory to store the message for calc
 	mov pMem, eax
+	
 	xor ecx, ecx
 	mov ebx, address
 	.while ecx < lenBytes ;copies the string from the buffer into allocated memory
@@ -106,9 +114,10 @@ pad512 proc address:DWORD ; pads the message into the pMem using GlobalAlloc
 		mov BYTE PTR [eax + ecx], dl
 		inc ecx
 	.endw
+	
 	mov BYTE PTR [eax + ecx], 80h ; put a bit in the end of the message
 	inc ecx
-	invoke getNumBlock, address
+	invoke getNumBlock, address ; find number of blocks
 	mov ebx, 64
 	mul ebx
 	sub eax, lenBytes
@@ -128,9 +137,10 @@ pad512 proc address:DWORD ; pads the message into the pMem using GlobalAlloc
 	add ecx, numZero
 	mov eax, lenBytes
 	mov ebx, 8
-	mul ebx
+	mul ebx ; number of bits in message to hash
 	mov ebx, pMem
-	.if eax < 65536 ;puts the length in bits at the end of the last block
+	
+	.if eax < 65536 ; puts the length in bits at the end of the last block
 		xchg al, ah ; swaps between little and big endian
 		inc ecx
 		mov WORD PTR [ebx + ecx], ax
@@ -142,6 +152,7 @@ pad512 proc address:DWORD ; pads the message into the pMem using GlobalAlloc
 	ret
 pad512 endp
 
+; SHA256 specific calculations
 chxyz proc x:DWORD, y:DWORD, z:DWORD ; (X AND Y) XOR (NOT X AND Z)
 	mov eax, x
 	mov ebx, y
@@ -157,6 +168,7 @@ chxyz proc x:DWORD, y:DWORD, z:DWORD ; (X AND Y) XOR (NOT X AND Z)
 	ret
 chxyz endp
 
+; SHA256 specific calculations
 majxyz proc x:DWORD, y:DWORD, z:DWORD ; (X AND Y) XOR (X AND Z) XOR (Y AND Z)
 	LOCAL one:DWORD
 	mov eax, x
@@ -178,6 +190,7 @@ majxyz proc x:DWORD, y:DWORD, z:DWORD ; (X AND Y) XOR (X AND Z) XOR (Y AND Z)
 	ret
 majxyz endp
 
+; SHA256 specific calculations
 sum0 proc x:DWORD ; S(X, SUM0ROT1) XOR S(X, SUM0ROT2) XOR S(X, SUM0ROT3) S=rotater, R=shiftr
 	mov eax, x
 	ror eax, SUM0ROT1
@@ -196,6 +209,7 @@ sum0 proc x:DWORD ; S(X, SUM0ROT1) XOR S(X, SUM0ROT2) XOR S(X, SUM0ROT3) S=rotat
 	ret
 sum0 endp
 
+; SHA256 specific calculations
 sum1 proc x:DWORD ; S(X, SUM1ROT1) XOR S(X, SUM1ROT2) XOR S(X, SUM1ROT3)
 	mov eax, x
 	ror eax, SUM1ROT1
@@ -214,6 +228,7 @@ sum1 proc x:DWORD ; S(X, SUM1ROT1) XOR S(X, SUM1ROT2) XOR S(X, SUM1ROT3)
 	ret
 sum1 endp
 
+; SHA256 specific calculations
 sigma0 proc x:DWORD ; S(X, SIGMA0ROT1) XOR S(X, SIGMA0ROT2) XOR R(X, SIGMA0SHIFT1)
 	mov eax, x
 	ror eax, SIGMA0ROT1
@@ -232,6 +247,7 @@ sigma0 proc x:DWORD ; S(X, SIGMA0ROT1) XOR S(X, SIGMA0ROT2) XOR R(X, SIGMA0SHIFT
 	ret
 sigma0 endp
 
+; SHA256 specific calculations
 sigma1 proc x:DWORD ; S(X, SIGMA1ROT1) XOR S(X, SIGMA1ROT2) XOR R(X, SIGMA1SHIFT1)
 	mov eax, x
 	ror eax, SIGMA1ROT1
@@ -250,13 +266,17 @@ sigma1 proc x:DWORD ; S(X, SIGMA1ROT1) XOR S(X, SIGMA1ROT2) XOR R(X, SIGMA1SHIFT
 	ret
 sigma1 endp
 
+; SHA256 specific calculations
+; recursive function 
 wj proc n:DWORD, block:DWORD ; returns the message dependant function
 	LOCAL one:DWORD, two:DWORD, three:DWORD
+	
 	.if n <= 15 ; Wj = Mj 32 bit words, stops recurssion
 		mov ebx, block ; current block address
 		mov ecx, n ; current index of loop
 		mov eax, DWORD PTR [ebx + SIZEOF DWORD * ecx]
 		bswap eax ; convert little endian big endian
+	
 	.else ; Wj = sigma1(Wj-2) + Wj-7 + sigma0(Wj-15) + Wj-16
 		mov eax, n
 		sub eax, 2
@@ -284,13 +304,16 @@ wj proc n:DWORD, block:DWORD ; returns the message dependant function
 		add eax, three ; ADD
 
 	.endif
-	
 	ret
 wj endp
 
+; SHA256 specific calculations
+; recursive function
 hashBlock proc block:DWORD, n:DWORD ; returns in ta-th the hash value of some message given
 	LOCAL t1:DWORD, t2:DWORD, ta:DWORD, tb:DWORD, tc:DWORD, td:DWORD, te:DWORD, tf:DWORD, tg:DWORD, th:DWORD
+	
 	.if n==0 ;stops recuression and returns constant values
+		; copy inter hash values
 		mov eax, initial_a
 		mov ta, eax
 		mov eax, initial_b
@@ -388,8 +411,9 @@ hashBlock proc block:DWORD, n:DWORD ; returns in ta-th the hash value of some me
 
 			inc ecx ;increment index
 		.endw
+
 		mov eax, initial_a ; add all of calculated ta-th to given constants
-		add eax, ta
+		add eax, ta		   ; and store in memory as correct endian value
 		bswap eax
 		mov taPrev, eax
 		mov eax, initial_b
@@ -420,6 +444,7 @@ hashBlock proc block:DWORD, n:DWORD ; returns in ta-th the hash value of some me
 		add eax, th
 		bswap eax
 		mov thPrev, eax
+	
 	.else ; if recurssion still occurs
 		mov eax, n
 		dec eax
@@ -577,15 +602,16 @@ hashBlock proc block:DWORD, n:DWORD ; returns in ta-th the hash value of some me
 		mov thPrev, eax
 
 	.endif
-
 	ret
 hashBlock endp
 
 hashMess proc address:DWORD ; invokes all of hash related functions in order
+	
 	invoke pad512, address ; pad
 	invoke getNumBlock, address ; get the number of blocks
 	dec eax
 	invoke hashBlock, pMem, eax ; hash the message
+	
 	ret
 hashMess endp
 
@@ -632,6 +658,8 @@ printHash proc ; prints the ta-th in order
 	add edx, 8
 	invoke dw2hex, thPrev, edx ; make a string from value of th
 	
+	; the hex values of hash should be written in lower case
+	; but dw2hex outputs them as upper case
 	xor ecx, ecx ; zero index
 	.while ecx < 64 ; loop 64 times
 		lea ebx, pBuff ; pointer to the buffer
@@ -643,13 +671,16 @@ printHash proc ; prints the ta-th in order
 		inc ecx ; increment index
 	.endw
 
-	invoke StdOut, addr pBuff ; print the buffer
+	invoke StdOut, addr pBuff ; print the hash buffer
 	invoke StdOut, addr crlf ; print new line
 
 	ret
 printHash endp
 
-carrySub proc ; subtracs with carry to calculate the time needed to hash
+; calculates the time difference between hash start and stop then divides by cpu clock count
+; per second to find time in microsecond it took to hash
+calcTime proc
+	
 	lea ebx, tEnd ; ticks of end
 	mov eax, DWORD PTR [ebx]
 	lea ebx, tStart ; ticks of start
@@ -660,41 +691,102 @@ carrySub proc ; subtracs with carry to calculate the time needed to hash
 	sbb ebx, DWORD PTR [ecx+4]
 	mov ebx, 0000f4240h ; multiplies to sort out unit conversions
 	mul ebx
+	
 	lea ebx, tElapsed
 	mov DWORD PTR [ebx], edx
 	mov DWORD PTR [ebx+4], eax
 	lea ebx, tFrequency
 	mov ebx, tFrequency.LowPart
 	div ebx ; divides the ticks in the frequency to get time
-	invoke dwtoa, eax, addr tBuff
+	invoke dwtoa, eax, addr tBuff ; outputs number of microseconds to tBuff
+	
 	ret
-carrySub endp
+calcTime endp
 
-main proc ; main loop
-	xor ecx, ecx ; zero the index
-	.while ecx==0 ; create infinite loop
-		invoke StdOut, addr insertMessage ; prompts the user
-		invoke StdOut, addr crlf ;print new line
-		invoke getMessage ; gets the message to hash
-
-		invoke QueryPerformanceFrequency, addr tFrequency ; gets the cpu frequency
-		invoke QueryPerformanceCounter, addr tStart ; starts the tick count
-		invoke hashMess, addr message ; hashes the message from the buffer
-		invoke QueryPerformanceCounter, addr tEnd ; stops the timer of ticks
-		invoke carrySub ; subtructs the tick interval
-
-		invoke printHash ; prints the resault of the SHA256 function
-
-		invoke StdOut, addr timeMessage 
-		invoke StdOut, addr tBuff ; prints time in micro seconds of hashing
-		invoke StdOut, addr miliMessage
-		invoke StdOut, addr crlf ; new line
-		invoke StdOut, addr crlf ; new line
-		xor ecx, ecx ; zero ecx to keep loop infinite
-
+update proc ; updates the user interface when key is pressed down
+	
+	invoke ReadConsoleInput, hwnd, addr inp, 128, addr inpNumRead ; read the input to the console window
+	
+	xor ecx, ecx ; zero out index
+	.while ecx < inpNumRead
+		lea ebx, inp
+	
+		.if WORD PTR [ebx+ecx] == KEY_EVENT ; if the input was a key event
+			.if BYTE PTR [ebx+ecx+SIZEOF DWORD] == 1 ; if the key was pressed down
+				push ecx
+				invoke ClearScreen ; clear the screen of the console
+				invoke strLenByTerminator, addr message ; find length of buffer
+				pop ecx
+				lea edx, message
+				lea ebx, inp
+				add ebx, ecx
+				add ebx, charoffset
+				mov bl, BYTE PTR [ebx] ; find last character from the input struct
+				
+				.if bl == 8 ; back space pressed
+					mov BYTE PTR [edx+eax-1], 0 ; delete last char from buffer
+					mov eax, 1 ; return that an update has been made
+					
+					ret
+				.else
+					.if bl == 13 ; enter pressed
+						mov BYTE PTR [edx+eax], 10 ; add \n char
+						mov eax, 1 ; return that an update has been made
+						
+						ret
+					.else
+						mov BYTE PTR [edx+eax], BYTE PTR bl ; add the last char to buffer
+						mov eax, 1 ; return that an update has been made
+				
+						ret
+					.endif
+				.endif
+			.endif
+		.endif
+		inc ecx ; incerement index
 	.endw
 
-	invoke ExitProcess, 0 ; exut the process correctly
+	mov eax, 0 ; return that no update has been made to buffer
+	ret
+update endp
+
+calcHash proc
+	invoke StdOut, addr insertMessage ; prompts the user
+	invoke StdOut, addr crlf ;print new line
+	invoke StdOut, addr message ; print the buffer
+	invoke StdOut, addr crlf ; print new line
+
+	invoke QueryPerformanceFrequency, addr tFrequency ; gets the cpu frequency
+	invoke QueryPerformanceCounter, addr tStart ; starts the tick count
+	invoke hashMess, addr message ; hashes the message from the buffer
+	invoke QueryPerformanceCounter, addr tEnd ; stops the timer of ticks
+	invoke calcTime ; subtructs the tick interval
+
+	invoke printHash ; prints the resault of the SHA256 function
+
+	invoke StdOut, addr timeMessage ; prints elapsed time: 
+	invoke StdOut, addr tBuff ; prints time in micro seconds of hashing
+	invoke StdOut, addr microMessage ; prints micro seconds
+	invoke StdOut, addr crlf ; new line
+	invoke StdOut, addr crlf ; new line
+	ret
+calcHash endp
+
+main proc ; main loop
+	invoke GetStdHandle, STD_INPUT_HANDLE ; gets the handle to console window
+	mov hwnd, eax
+
+	xor ecx, ecx ; zero out index
+	mov eax, 1 ; print the hash of "" for the first time
+	.while ecx == 0 ; infinite loop
+		.if eax == 1 ; check if the buffer updated
+			invoke calcHash ; calculate the hash of the buffer
+		.endif
+		invoke update ; check for updates in the buffer
+		xor ecx, ecx ; infinite loop
+	.endw
+
+	invoke ExitProcess, 0 ; exit the process correctly
 main endp
 
 end main
