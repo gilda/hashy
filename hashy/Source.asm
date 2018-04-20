@@ -7,6 +7,7 @@ inp INPUT_RECORD 128 dup(<>) ; events read from console input
 
 
 message db 1028 dup (0), 0 ;input buffer
+messageLength DWORD ?
 
 initial_a DWORD 06a09e667h ; initial constants
 initial_b DWORD 0bb67ae85h
@@ -35,11 +36,13 @@ thPrev DWORD ?
 
 pBuff db 64 dup(0), 0 ; hash string buffer
 tBuff db 16 dup(0), 0 ; timer buffer
+lBuff db 16 dup(0), 0
 
 crlf db 13, 10, 0 ; next line string
 timeMessage db "elapsed time: ", 0 ; strings to print V
-microMessage db " micro seconds", 0 ; microseconds
+microMessage db " micro seconds", 13, 10, "press ctrl+c to exit", 0 ; microseconds
 insertMessage db "insert message to hash using SHA256: ", 0 ; prompt
+lengthMessage db "/1028", 0
 
 tFrequency LARGE_INTEGER <> ; find cpu frequency to calculate time
 tStart LARGE_INTEGER <> ; start of hashy time
@@ -65,6 +68,7 @@ SIGMA1SHIFT1=10 ;
 
 charoffset = SIZEOF DWORD + SIZEOF BOOL + SIZEOF WORD * 3 ; constant for the offset of char inside KEY_EVENT struct
 
+MAX_CHAR = 1028
 .code
 
 strLenByTerminator proc address:DWORD ;gets the length of string by the terminator 0
@@ -725,19 +729,30 @@ update proc ; updates the user interface when key is pressed down
 				
 				.if bl == 8 ; back space pressed
 					mov BYTE PTR [edx+eax-1], 0 ; delete last char from buffer
+					invoke strLenByTerminator, addr message
+					mov messageLength, eax
 					mov eax, 1 ; return that an update has been made
 					
 					ret
 				.else
-					.if bl == 13 ; enter pressed
-						mov BYTE PTR [edx+eax], 10 ; add \n char
-						mov eax, 1 ; return that an update has been made
+					.if messageLength < MAX_CHAR
+						.if bl == 13 ; enter pressed
+							mov BYTE PTR [edx+eax], 10 ; add \n char
+							invoke strLenByTerminator, addr message
+							mov messageLength, eax ; update the length of the message
+							mov eax, 1 ; return that an update has been made
 						
-						ret
-					.else
-						mov BYTE PTR [edx+eax], BYTE PTR bl ; add the last char to buffer
-						mov eax, 1 ; return that an update has been made
+							ret
+						.else
+							mov BYTE PTR [edx+eax], BYTE PTR bl ; add the last char to buffer
+							invoke strLenByTerminator, addr message
+							mov messageLength, eax ; update the length of the message
+							mov eax, 1 ; return that an update has been made
 				
+							ret
+						.endif
+					.else
+						mov eax, 1
 						ret
 					.endif
 				.endif
@@ -750,11 +765,22 @@ update proc ; updates the user interface when key is pressed down
 	ret
 update endp
 
+printCharCount proc
+	
+	invoke dwtoa, messageLength, addr lBuff ; length of current message to hash
+	invoke StdOut, addr lBuff ; prints the length
+	invoke StdOut, addr lengthMessage ; prints /1028
+	invoke StdOut, addr crlf ; new line
+
+	ret
+printCharCount endp
+
 calcHash proc
 	invoke StdOut, addr insertMessage ; prompts the user
 	invoke StdOut, addr crlf ;print new line
 	invoke StdOut, addr message ; print the buffer
 	invoke StdOut, addr crlf ; print new line
+	invoke printCharCount ; print char count
 
 	invoke QueryPerformanceFrequency, addr tFrequency ; gets the cpu frequency
 	invoke QueryPerformanceCounter, addr tStart ; starts the tick count
@@ -767,8 +793,6 @@ calcHash proc
 	invoke StdOut, addr timeMessage ; prints elapsed time: 
 	invoke StdOut, addr tBuff ; prints time in micro seconds of hashing
 	invoke StdOut, addr microMessage ; prints micro seconds
-	invoke StdOut, addr crlf ; new line
-	invoke StdOut, addr crlf ; new line
 	ret
 calcHash endp
 
