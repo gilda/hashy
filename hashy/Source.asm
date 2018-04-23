@@ -6,7 +6,7 @@ inpNumRead DWORD ? ; the number of events read from console input
 inp INPUT_RECORD 128 dup(<>) ; events read from console input
 
 
-message db 1028 dup (0), 0 ;input buffer
+message db 1024 dup (0), 0 ;input buffer
 messageLength DWORD ?
 
 initial_a DWORD 06a09e667h ; initial constants
@@ -42,7 +42,7 @@ crlf db 13, 10, 0 ; next line string
 timeMessage db "elapsed time: ", 0 ; strings to print V
 microMessage db " micro seconds", 13, 10, "press ctrl+c to exit", 0 ; microseconds
 insertMessage db "insert message to hash using SHA256: ", 0 ; prompt
-lengthMessage db "/1028", 0
+lengthMessage db "/1024", 0
 
 tFrequency LARGE_INTEGER <> ; find cpu frequency to calculate time
 tStart LARGE_INTEGER <> ; start of hashy time
@@ -68,7 +68,7 @@ SIGMA1SHIFT1=10 ;
 
 charoffset = SIZEOF DWORD + SIZEOF BOOL + SIZEOF WORD * 3 ; constant for the offset of char inside KEY_EVENT struct
 
-MAX_CHAR = 1028
+MAX_CHAR = 1024
 .code
 
 strLenByTerminator proc address:DWORD ;gets the length of string by the terminator 0
@@ -769,7 +769,7 @@ printCharCount proc
 	
 	invoke dwtoa, messageLength, addr lBuff ; length of current message to hash
 	invoke StdOut, addr lBuff ; prints the length
-	invoke StdOut, addr lengthMessage ; prints /1028
+	invoke StdOut, addr lengthMessage ; prints /1024
 	invoke StdOut, addr crlf ; new line
 
 	ret
