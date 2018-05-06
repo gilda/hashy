@@ -6,8 +6,9 @@ inpNumRead DWORD ? ; the number of events read from console input
 inp INPUT_RECORD 128 dup(<>) ; events read from console input
 
 
-message db 1024 dup (0), 0 ;input buffer
-messageLength DWORD ?
+mMem DWORD ?
+maxMessageLen DWORD 1024
+messageLength DWORD 0
 
 initial_a DWORD 06a09e667h ; initial constants
 initial_b DWORD 0bb67ae85h
@@ -36,13 +37,14 @@ thPrev DWORD ?
 
 pBuff db 64 dup(0), 0 ; hash string buffer
 tBuff db 16 dup(0), 0 ; timer buffer
-lBuff db 16 dup(0), 0
+lBuff db 16 dup(0), 0 ; current length of message length
+mlBuff db 16 dup(0), 0 ; current max length of message
 
 crlf db 13, 10, 0 ; next line string
 timeMessage db "elapsed time: ", 0 ; strings to print V
 microMessage db " micro seconds", 13, 10, "press ctrl+c to exit", 0 ; microseconds
 insertMessage db "insert message to hash using SHA256: ", 0 ; prompt
-lengthMessage db "/1024", 0
+lengthMessageSlash db "/", 0
 
 tFrequency LARGE_INTEGER <> ; find cpu frequency to calculate time
 tStart LARGE_INTEGER <> ; start of hashy time
@@ -68,7 +70,6 @@ SIGMA1SHIFT1=10 ;
 
 charoffset = SIZEOF DWORD + SIZEOF BOOL + SIZEOF WORD * 3 ; constant for the offset of char inside KEY_EVENT struct
 
-MAX_CHAR = 1024
 .code
 
 strLenByTerminator proc address:DWORD ;gets the length of string by the terminator 0
@@ -719,40 +720,66 @@ update proc ; updates the user interface when key is pressed down
 			.if BYTE PTR [ebx+ecx+SIZEOF DWORD] == 1 ; if the key was pressed down
 				push ecx
 				invoke ClearScreen ; clear the screen of the console
-				invoke strLenByTerminator, addr message ; find length of buffer
+				invoke strLenByTerminator, mMem ; find length of buffer
 				pop ecx
-				lea edx, message
 				lea ebx, inp
 				add ebx, ecx
 				add ebx, charoffset
 				mov bl, BYTE PTR [ebx] ; find last character from the input struct
 				
 				.if bl == 8 ; back space pressed
+					mov edx, mMem
 					mov BYTE PTR [edx+eax-1], 0 ; delete last char from buffer
-					invoke strLenByTerminator, addr message
+					invoke strLenByTerminator, mMem
 					mov messageLength, eax
 					mov eax, 1 ; return that an update has been made
 					
 					ret
 				.else
-					.if messageLength < MAX_CHAR
+					mov edx, maxMessageLen
+					.if messageLength < edx
 						.if bl == 13 ; enter pressed
+							mov edx, mMem
 							mov BYTE PTR [edx+eax], 10 ; add \n char
-							invoke strLenByTerminator, addr message
+							invoke strLenByTerminator, mMem
 							mov messageLength, eax ; update the length of the message
 							mov eax, 1 ; return that an update has been made
 						
 							ret
 						.else
+							mov edx, mMem
 							mov BYTE PTR [edx+eax], BYTE PTR bl ; add the last char to buffer
-							invoke strLenByTerminator, addr message
+							invoke strLenByTerminator, mMem
 							mov messageLength, eax ; update the length of the message
 							mov eax, 1 ; return that an update has been made
 				
 							ret
 						.endif
-					.else
-						mov eax, 1
+					.else	
+						push mMem ; push older memory
+						
+						add maxMessageLen, 1024 ; increase max message length
+						invoke GlobalAlloc, GPTR, maxMessageLen ; allocate enough memory to store the message for calc
+						mov mMem, eax
+					
+						pop edx ; mMem
+						push edx
+						invoke strLenByTerminator, edx
+						pop edx
+						mov ebx, mMem ; new allocated memory pointer
+						xor ecx, ecx
+						.while ecx < eax ; copies the string from the buffer into allocated memory
+							
+							push edx ; keep the old memory pointer
+							mov dl, BYTE PTR [edx+ecx]
+							mov BYTE PTR [ebx+ecx], dl
+							pop edx ; keep the old memory pointer
+
+							inc ecx
+						.endw
+
+						mov eax, 1 ; indicate that a change was made
+
 						ret
 					.endif
 				.endif
@@ -769,7 +796,9 @@ printCharCount proc
 	
 	invoke dwtoa, messageLength, addr lBuff ; length of current message to hash
 	invoke StdOut, addr lBuff ; prints the length
-	invoke StdOut, addr lengthMessage ; prints /1024
+	invoke StdOut, addr lengthMessageSlash ; prints /
+	invoke dwtoa, maxMessageLen, addr mlBuff
+	invoke StdOut, addr mlBuff ; prints maximum amount of chars currently
 	invoke StdOut, addr crlf ; new line
 
 	ret
@@ -778,13 +807,13 @@ printCharCount endp
 calcHash proc
 	invoke StdOut, addr insertMessage ; prompts the user
 	invoke StdOut, addr crlf ;print new line
-	invoke StdOut, addr message ; print the buffer
+	invoke StdOut, mMem ; print the buffer
 	invoke StdOut, addr crlf ; print new line
 	invoke printCharCount ; print char count
 
 	invoke QueryPerformanceFrequency, addr tFrequency ; gets the cpu frequency
 	invoke QueryPerformanceCounter, addr tStart ; starts the tick count
-	invoke hashMess, addr message ; hashes the message from the buffer
+	invoke hashMess, mMem ; hashes the message from the buffer
 	invoke QueryPerformanceCounter, addr tEnd ; stops the timer of ticks
 	invoke calcTime ; subtructs the tick interval
 
@@ -799,6 +828,9 @@ calcHash endp
 main proc ; main loop
 	invoke GetStdHandle, STD_INPUT_HANDLE ; gets the handle to console window
 	mov hwnd, eax
+
+	invoke GlobalAlloc, GPTR, maxMessageLen ; allocate enough memory to store the message for calc
+	mov mMem, eax
 
 	xor ecx, ecx ; zero out index
 	mov eax, 1 ; print the hash of "" for the first time
