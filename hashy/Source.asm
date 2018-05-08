@@ -7,7 +7,7 @@ inp INPUT_RECORD 128 dup(<>) ; events read from console input
 
 
 mMem DWORD ?
-maxMessageLen DWORD 1024
+maxMessageLen DWORD ?
 messageLength DWORD 0
 
 initial_a DWORD 06a09e667h ; initial constants
@@ -69,6 +69,8 @@ SIGMA1ROT2=19 ;
 SIGMA1SHIFT1=10 ;
 
 charoffset = SIZEOF DWORD + SIZEOF BOOL + SIZEOF WORD * 3 ; constant for the offset of char inside KEY_EVENT struct
+
+MAX_MESSAGE_LEN = 2
 
 .code
 
@@ -684,20 +686,20 @@ printHash endp
 
 ; calculates the time difference between hash start and stop then divides by cpu clock count
 ; per second to find time in microsecond it took to hash
-calcTime proc
+calcTime proc start:DWORD, finish:DWORD, elapsed:DWORD
 	
-	lea ebx, tEnd ; ticks of end
+	mov ebx, finish ; ticks of end
 	mov eax, DWORD PTR [ebx]
-	lea ebx, tStart ; ticks of start
+	mov ebx, start ; ticks of start
 	sub eax, DWORD PTR [ebx]
-	lea ebx, tEnd
+	mov ebx, finish
 	mov ebx, DWORD PTR [ebx+4]
-	lea ecx, tStart
+	mov ecx, start
 	sbb ebx, DWORD PTR [ecx+4]
 	mov ebx, 0000f4240h ; multiplies to sort out unit conversions
 	mul ebx
 	
-	lea ebx, tElapsed
+	mov ebx, elapsed
 	mov DWORD PTR [ebx], edx
 	mov DWORD PTR [ebx+4], eax
 	lea ebx, tFrequency
@@ -709,19 +711,21 @@ calcTime proc
 calcTime endp
 
 update proc ; updates the user interface when key is pressed down
-	
+	LOCAL index:DWORD
 	invoke ReadConsoleInput, hwnd, addr inp, 128, addr inpNumRead ; read the input to the console window
 	
 	xor ecx, ecx ; zero out index
 	.while ecx < inpNumRead
 		lea ebx, inp
-	
+		mov index, ecx		
+
 		.if WORD PTR [ebx+ecx] == KEY_EVENT ; if the input was a key event
 			.if BYTE PTR [ebx+ecx+SIZEOF DWORD] == 1 ; if the key was pressed down
 				push ecx
 				invoke ClearScreen ; clear the screen of the console
 				invoke strLenByTerminator, mMem ; find length of buffer
 				pop ecx
+				push ecx
 				lea ebx, inp
 				add ebx, ecx
 				add ebx, charoffset
@@ -758,8 +762,12 @@ update proc ; updates the user interface when key is pressed down
 					.else	
 						push mMem ; push older memory
 						
-						add maxMessageLen, 1024 ; increase max message length
-						invoke GlobalAlloc, GPTR, maxMessageLen ; allocate enough memory to store the message for calc
+						mov eax, maxMessageLen
+						add maxMessageLen, eax
+						add eax, eax
+						inc eax
+						
+						invoke GlobalAlloc, GPTR, eax ; allocate enough memory to store the message for calc
 						mov mMem, eax
 					
 						pop edx ; mMem
@@ -777,10 +785,28 @@ update proc ; updates the user interface when key is pressed down
 
 							inc ecx
 						.endw
-
-						mov eax, 1 ; indicate that a change was made
-
-						ret
+						
+						lea ebx, inp
+						add ebx, index
+						add ebx, charoffset
+						mov bl, BYTE PTR [ebx] ; find last character from the input struct
+						.if bl == 13 ; enter pressed
+							mov edx, mMem
+							mov BYTE PTR [edx+eax], 10 ; add \n char
+							invoke strLenByTerminator, mMem
+							mov messageLength, eax ; update the length of the message
+							mov eax, 1 ; return that an update has been made
+						
+							ret
+						.else
+							mov edx, mMem
+							mov BYTE PTR [edx+eax], BYTE PTR bl ; add the last char to buffer
+							invoke strLenByTerminator, mMem
+							mov messageLength, eax ; update the length of the message
+							mov eax, 1 ; return that an update has been made
+				
+							ret
+						.endif
 					.endif
 				.endif
 			.endif
@@ -815,7 +841,7 @@ calcHash proc
 	invoke QueryPerformanceCounter, addr tStart ; starts the tick count
 	invoke hashMess, mMem ; hashes the message from the buffer
 	invoke QueryPerformanceCounter, addr tEnd ; stops the timer of ticks
-	invoke calcTime ; subtructs the tick interval
+	invoke calcTime, addr tStart, addr tEnd, addr tElapsed ; subtructs the tick interval
 
 	invoke printHash ; prints the resault of the SHA256 function
 
@@ -826,10 +852,15 @@ calcHash proc
 calcHash endp
 
 main proc ; main loop
+	
+	mov maxMessageLen, MAX_MESSAGE_LEN ; initialize max message length frm constant	
+
 	invoke GetStdHandle, STD_INPUT_HANDLE ; gets the handle to console window
 	mov hwnd, eax
 
-	invoke GlobalAlloc, GPTR, maxMessageLen ; allocate enough memory to store the message for calc
+	mov eax, maxMessageLen
+	inc eax
+	invoke GlobalAlloc, GPTR, eax ; allocate enough memory to store the message for calc
 	mov mMem, eax
 
 	xor ecx, ecx ; zero out index
